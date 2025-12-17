@@ -19,8 +19,8 @@ const client = new Client({
 });
 
 // ===== PUT THESE ONLY ONCE (TOP OF FILE) =====
-const TOKEN = "MTQ1MDc3NjcwNDU0ODMzOTc0Mg.GYvPR6.5Pj-x6LXXfvdG6HWryFMMQ_tLegUOkl4Y-iW7U";
-const PRIVATE_CHANNEL_ID = "1450787132942712892";
+const TOKEN = process.env.TOKEN;
+const PRIVATE_CHANNEL_ID = process.env.PRIVATE_CHANNEL_ID;
 
 // ===== BOT ONLINE MESSAGE =====
 client.once("ready", () => {
@@ -134,5 +134,6 @@ Submitted by: ${interaction.user.tag}`
 
 // ===== LOGIN BOT (VERY BOTTOM) =====
 client.login(TOKEN);
+
 
 
