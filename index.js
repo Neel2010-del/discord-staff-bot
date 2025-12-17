@@ -1,185 +1,107 @@
-const {
-  Client,
-  GatewayIntentBits,
-  ButtonBuilder,
-  ButtonStyle,
-  ActionRowBuilder,
-  ModalBuilder,
-  TextInputBuilder,
-  TextInputStyle,
-  InteractionType
-} = require("discord.js");
+import os
+import time
+from datetime import datetime, timezone
+from flask import Flask, request, jsonify
+import requests
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
-});
+app = Flask(__name__)
 
-// ===== PUT THESE ONLY ONCE (TOP OF FILE) =====
-const TOKEN = process.env.TOKEN;
-const PRIVATE_CHANNEL_ID = process.env.PRIVATE_CHANNEL_ID;
+# Environment variables
+DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+LOG_CHANNEL_ID = os.getenv("LOG_CHANNEL_ID", "1410458084874260592")
+AUTH_SECRET = os.getenv("AUTH_SECRET")  # Optional security
+BOT_DISPLAY_NAME = os.getenv("BOT_DISPLAY_NAME", "CommandLoggerBot")
 
-// ===== BOT ONLINE MESSAGE =====
-client.once("ready", () => {
-  console.log("✅ Bot is online!");
-});
+DISCORD_API_BASE = "https://discord.com/api/v10"
 
-// ===== SEND BUTTON MESSAGE =====
-client.on("messageCreate", async (message) => {
-  if (message.content === "!sendform") {
+if not DISCORD_BOT_TOKEN:
+    raise ValueError("DISCORD_BOT_TOKEN environment variable is required!")
 
-    const button = new ButtonBuilder()
-      .setCustomId("open_staff_form")
-      .setLabel("Apply for Staff")
-      .setStyle(ButtonStyle.Primary);
+def auth_ok(req):
+    """Validate optional auth header."""
+    if not AUTH_SECRET:
+        return True
+    auth = req.headers.get("Authorization", "")
+    return auth == f"Bearer {AUTH_SECRET}"
 
-    const row = new ActionRowBuilder().addComponents(button);
+def make_embed(payload):
+    command = payload.get("command", "<unknown>")
+    username = payload.get("username", "Unknown user")
+    user_id = payload.get("user_id", "unknown")
+    description = payload.get("description", "No description provided.")
+    bot_name = payload.get("bot_name", "Unknown Bot")
+    extra = payload.get("extra", {})
 
-    await message.channel.send({
-      content: "📋 **Staff Applications**\n\nTo apply for staff, click the button below:",
-      components: [row]
-    });
-  }
-});
+    # Build fields
+    fields = [
+        {"name": "Command / Trigger", "value": f"`{command}`", "inline": True},
+        {"name": "Who triggered it", "value": f"{username} (`{user_id}`)", "inline": True},
+        {"name": "Bot used", "value": bot_name, "inline": True},
+        {"name": "What it did", "value": description, "inline": False},
+    ]
 
-// ===== BUTTON + FORM HANDLER =====
-client.on("interactionCreate", async (interaction) => {
+    # Add extra fields
+    if isinstance(extra, dict):
+        for k, v in extra.items():
+            val = str(v)
+            if len(val) > 1024:
+                val = val[:1020] + "…"
+            fields.append({"name": k, "value": val, "inline": False})
 
-  // --- BUTTON CLICK ---
-  if (interaction.isButton() && interaction.customId === "open_staff_form") {
-
-    const modal = new ModalBuilder()
-      .setCustomId("staff_form")
-      .setTitle("Staff Application");
-
-    const q1 = new TextInputBuilder()
-      .setCustomId("discord_name")
-      .setLabel("Discord Username")
-      .setStyle(TextInputStyle.Short)
-      .setRequired(true);
-
-    const q2 = new TextInputBuilder()
-      .setCustomId("roblox_profile")
-      .setLabel("Roblox Profile")
-      .setStyle(TextInputStyle.Short)
-      .setRequired(true);
-
-    const q3 = new TextInputBuilder()
-      .setCustomId("why_staff")
-      .setLabel("Why are you applying for staff?")
-      .setStyle(TextInputStyle.Paragraph)
-      .setRequired(true);
-
-    const q4 = new TextInputBuilder()
-      .setCustomId("bring_team")
-      .setLabel("What can you bring to the staff team?")
-      .setStyle(TextInputStyle.Paragraph)
-      .setRequired(true);
-
-    const q5 = new TextInputBuilder()
-      .setCustomId("join_date")
-      .setLabel("When did you join?")
-      .setStyle(TextInputStyle.Short)
-      .setRequired(true);
-
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(q1),
-      new ActionRowBuilder().addComponents(q2),
-      new ActionRowBuilder().addComponents(q3),
-      new ActionRowBuilder().addComponents(q4),
-      new ActionRowBuilder().addComponents(q5)
-    );
-
-    await interaction.showModal(modal);
-  }
-
-  // --- FORM SUBMIT ---
-  if (
-    interaction.type === InteractionType.ModalSubmit &&
-    interaction.customId === "staff_form"
-  ) {
-
-    const applicantId = interaction.user.id;
-    const channel = await client.channels.fetch(PRIVATE_CHANNEL_ID);
-
-    // Create Accept and Reject buttons
-    const acceptButton = new ButtonBuilder()
-      .setCustomId(`accept_${applicantId}`)
-      .setLabel("✅ Accept")
-      .setStyle(ButtonStyle.Success);
-
-    const rejectButton = new ButtonBuilder()
-      .setCustomId(`reject_${applicantId}`)
-      .setLabel("❌ Reject")
-      .setStyle(ButtonStyle.Danger);
-
-    const row = new ActionRowBuilder().addComponents(acceptButton, rejectButton);
-
-    // Send application to private channel with buttons
-    await channel.send({
-      content: `📋 **NEW STAFF APPLICATION**
-
-👤 Discord Username:
-${interaction.fields.getTextInputValue("discord_name")}
-
-🎮 Roblox Profile:
-${interaction.fields.getTextInputValue("roblox_profile")}
-
-📝 Why Staff:
-${interaction.fields.getTextInputValue("why_staff")}
-
-💪 What they bring:
-${interaction.fields.getTextInputValue("bring_team")}
-
-📅 Joined:
-${interaction.fields.getTextInputValue("join_date")}
-
-Submitted by: <@${applicantId}>`,
-      components: [row],
-    });
-
-    await interaction.reply({
-      content: "✅ Your staff application has been submitted!",
-      ephemeral: true
-    });
-  }
-
-  // --- ACCEPT / REJECT HANDLER ---
-  if (interaction.isButton()) {
-    const [action, applicantId] = interaction.customId.split("_");
-
-    // Only admins can click
-    if (!interaction.member.permissions.has("Administrator")) {
-      return interaction.reply({ content: "❌ You are not allowed to do this.", ephemeral: true });
+    embed = {
+        "title": "Command Triggered",
+        "description": "A command or trigger was used in the server.",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "color": 0x2F3136,
+        "author": {"name": bot_name},
+        "fields": fields,
+        "footer": {"text": f"{BOT_DISPLAY_NAME} • logged"},
     }
+    return embed
 
-    const user = await client.users.fetch(applicantId);
-
-    if (action === "accept") {
-      // DM the applicant
-      user.send("🎉 Congratulations! Your staff application has been accepted. You will be notified further soon.")
-        .catch(() => console.log("Could not DM user"));
-
-      await interaction.update({ content: interaction.message.content + "\n\n✅ Accepted by " + interaction.user.tag, components: [] });
+def send_embed(channel_id, embed):
+    url = f"{DISCORD_API_BASE}/channels/{channel_id}/messages"
+    headers = {
+        "Authorization": f"Bot {DISCORD_BOT_TOKEN}",
+        "Content-Type": "application/json"
     }
+    payload = {"embeds": [embed]}
+    resp = requests.post(url, json=payload, headers=headers, timeout=10)
 
-    if (action === "reject") {
-      // DM the applicant
-      user.send("❌ Your staff application has been declined. Try again next time.")
-        .catch(() => console.log("Could not DM user"));
+    # simple rate limit handling
+    if resp.status_code == 429:
+        retry = resp.json().get("retry_after", 1)
+        time.sleep(retry / 1000)
+        resp = requests.post(url, json=payload, headers=headers, timeout=10)
+    resp.raise_for_status()
+    return resp
 
-      await interaction.update({ content: interaction.message.content + "\n\n❌ Declined by " + interaction.user.tag, components: [] });
-    }
-  }
-});
+@app.route("/")
+def index():
+    return "Bot command logger is running."
 
-// ===== LOGIN BOT (VERY BOTTOM) =====
-client.login(TOKEN);
+@app.route("/notify", methods=["POST"])
+def notify():
+    if not auth_ok(request):
+        return jsonify({"error": "unauthorized"}), 401
 
+    if not request.is_json:
+        return jsonify({"error": "expected JSON body"}), 400
 
+    payload = request.get_json()
+    if "command" not in payload:
+        return jsonify({"error": "missing 'command' field"}), 400
 
+    embed = make_embed(payload)
+    try:
+        send_embed(LOG_CHANNEL_ID, embed)
+    except requests.HTTPError as e:
+        return jsonify({"error": "failed to send to Discord", "details": getattr(e, "response").text if getattr(e, "response", None) else str(e)}), 500
+    except Exception as e:
+        return jsonify({"error": "unexpected error", "details": str(e)}), 500
 
+    return jsonify({"ok": True}), 200
 
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
